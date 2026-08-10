@@ -121,7 +121,7 @@
 <body>
     <div id="error-box" class="error-msg">
         <h2>Không tìm thấy Video ID</h2>
-        <p>Vui lòng truyền tham số ?v=VIDEO_ID hợp lệ trên URL.</p>
+        <p>Vui lòng truyền tham số ?v=VIDEO_ID hoặc link YouTube hợp lệ.</p>
     </div>
 
     <div id="player-container">
@@ -129,12 +129,23 @@
     </div>
 
     <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const videoId = urlParams.get('v');
+        // Trích xuất Video ID chuẩn từ mọi định dạng link YouTube (như dự án movie)
+        function extractVideoId(url) {
+            if (!url) return null;
+            const str = url.trim();
+            if (/^[a-zA-Z0-9_-]{11}$/.test(str)) return str;
+            const match = str.match(/(?:[?&]v=|youtu\.be\/|\/embed\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+            return match ? match[1] : null;
+        }
 
-        if (!videoId || videoId.length !== 11) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const rawParam = urlParams.get('v') || window.location.href;
+        const videoId = extractVideoId(rawParam);
+
+        if (!videoId) {
             document.getElementById('error-box').classList.add('show');
         } else {
+            // Nạp YouTube IFrame API chuẩn theo cấu hình từ dự án movie
             var tag = document.createElement('script');
             tag.src = "https://www.youtube.com/iframe_api";
             var firstScriptTag = document.getElementsByTagName('script')[0];
@@ -144,15 +155,10 @@
             function onYouTubeIframeAPIReady() {
                 player = new YT.Player('player', {
                     videoId: videoId,
-                    host: 'https://www.youtube-nocookie.com',
                     playerVars: {
                         'autoplay': 1,
                         'playsinline': 1,
-                        'enablejsapi': 1,
                         'rel': 0,
-                        'modestbranding': 1,
-                        'controls': 1,
-                        'fs': 1,
                         'origin': window.location.origin
                     },
                     events: {
@@ -165,25 +171,22 @@
             function onPlayerError(event) {
                 console.error("YouTube Player Error:", event.data);
                 var container = document.getElementById('player-container');
-                container.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + videoId + '?autoplay=1&playsinline=1&enablejsapi=1&rel=0&modestbranding=1&controls=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
+                container.innerHTML = '<iframe src="https://www.youtube.com/embed/' + videoId + '?autoplay=1&playsinline=1&rel=0&origin=' + encodeURIComponent(window.location.origin) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
             }
         }
 
-        // Tầng 3: Dynamic Ad Sweeper & Speed Skipper - Tự động tua 0.01s qua video quảng cáo & tự động bấm "Skip Ad"
+        // Tầng 3: Dynamic Ad Sweeper & Speed Skipper - Tua 0.01s qua video quảng cáo & tự động bấm "Skip Ad"
         setInterval(function() {
             try {
-                // Tua gấp qua video quảng cáo nếu có quảng cáo lọt lưới
                 const video = document.querySelector('video');
                 const adShowing = document.querySelector('.ad-showing, .ytp-ad-module');
                 if (adShowing && video && !isNaN(video.duration)) {
                     video.currentTime = video.duration;
                 }
 
-                // Tự động click Skip Ad
                 const skipBtns = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot');
                 skipBtns.forEach(function(btn) { btn.click(); });
 
-                // Dọn dẹp DOM phần tử quảng cáo
                 const ads = document.querySelectorAll(
                     '.ytp-ad-text-overlay, .ytp-ad-overlay-container, .ytp-ad-preview-container, ' +
                     '.ytp-ad-skip-button-container, .ytp-ad-player-overlay, .ytp-ad-progress, ' +
