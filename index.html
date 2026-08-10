@@ -3,21 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PureTuber YouTube Player</title>
+    <title>YouTube Ad-Free Player</title>
+    
     <style id="youis-adblock">
-        /* Kỹ thuật Chặn Quảng Cáo & Overlays từ ka3m (Karaoke 3 Miền) */
+        /* Tầng 1: CSS Blocker - Ẩn hoàn toàn tất cả container quảng cáo & overlays */
         .ytp-ad-text-overlay, .ytp-ad-overlay-container, .ytp-ad-preview-container,
         .ytp-ad-skip-button-container, .ytp-ad-player-overlay, .ytp-ad-progress,
         .ytp-ad-image-overlay, .ytp-ad-overlay-slot, .ytp-ad-visit-advertiser-button,
         .ytp-ad-feedback-dialog, .ytp-ad-persistent-progress-bar-container,
         .video-ads, .ytp-suggestion-set, .ytp-endscreen-previous, .ytp-endscreen-content,
-        .ytp-ce-element, .ytp-cards-teaser, .annotation, .iv-drawer {
+        .ytp-ce-element, .ytp-cards-teaser, .annotation, .iv-drawer, .ytp-ad-module,
+        .ytp-ad-overlay-image, .ad-showing, .ad-container, #player-ads {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
             pointer-events: none !important;
         }
     </style>
+
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body {
@@ -41,36 +44,6 @@
             height: 100% !important;
             border: 0 !important;
         }
-        #loading {
-            position: fixed;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: #0f0f0f;
-            z-index: 10;
-            transition: opacity 0.3s ease;
-        }
-        #loading.hidden {
-            opacity: 0;
-            pointer-events: none;
-        }
-        .spinner {
-            width: 44px;
-            height: 44px;
-            border: 4px solid rgba(255, 0, 0, 0.2);
-            border-top-color: #ff0000;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .loading-text {
-            margin-top: 14px;
-            font-size: 13px;
-            color: #aaaaaa;
-            font-weight: 500;
-        }
         .error-msg {
             display: none;
             position: fixed;
@@ -87,13 +60,65 @@
         .error-msg h2 { font-size: 16px; margin-bottom: 8px; color: #ff4d4d; }
         .error-msg p { font-size: 13px; color: #888; }
     </style>
+
+    <script>
+        // Tầng 2: Payload Filter - Bắt & bóc tách JSON quảng cáo từ YouTube InnerTube API
+        (function() {
+            'use strict';
+            const originalFetch = window.fetch;
+            if (originalFetch) {
+                window.fetch = async function(...args) {
+                    const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
+                    if (url.includes('/api/stats/ads') || url.includes('/pagead/') || url.includes('/ptracking') || url.includes('/get_midroll_')) {
+                        return new Response('', { status: 200, statusText: 'OK' });
+                    }
+                    const response = await originalFetch.apply(this, args);
+                    if (url.includes('/youtubei/v1/player')) {
+                        try {
+                            const clone = response.clone();
+                            const json = await clone.json();
+                            if (json) {
+                                delete json.adPlacements;
+                                delete json.playerAds;
+                                delete json.adSlots;
+                                if (json.playbackTracking) {
+                                    delete json.playbackTracking.atrUrl;
+                                    delete json.playbackTracking.videostatsAdUrl;
+                                }
+                                return new Response(JSON.stringify(json), {
+                                    status: response.status,
+                                    statusText: response.statusText,
+                                    headers: response.headers
+                                });
+                            }
+                        } catch(e) {}
+                    }
+                    return response;
+                };
+            }
+
+            const XHR = XMLHttpRequest.prototype;
+            const open = XHR.open;
+            const send = XHR.send;
+
+            XHR.open = function(method, url) {
+                this._url = url;
+                return open.apply(this, arguments);
+            };
+
+            XHR.send = function(postData) {
+                if (this._url && (this._url.includes('/api/stats/ads') || this._url.includes('/pagead/') || this._url.includes('/ptracking') || this._url.includes('/get_midroll_'))) {
+                    Object.defineProperty(this, 'status', { value: 200 });
+                    Object.defineProperty(this, 'responseText', { value: '' });
+                    this.dispatchEvent(new Event('load'));
+                    return;
+                }
+                return send.apply(this, arguments);
+            };
+        })();
+    </script>
 </head>
 <body>
-    <div id="loading">
-        <div class="spinner"></div>
-        <div class="loading-text">Đang tải video không quảng cáo...</div>
-    </div>
-    
     <div id="error-box" class="error-msg">
         <h2>Không tìm thấy Video ID</h2>
         <p>Vui lòng truyền tham số ?v=VIDEO_ID hợp lệ trên URL.</p>
@@ -104,15 +129,12 @@
     </div>
 
     <script>
-        // 1. Lấy Video ID từ URL parameter ?v=...
         const urlParams = new URLSearchParams(window.location.search);
         const videoId = urlParams.get('v');
 
         if (!videoId || videoId.length !== 11) {
-            document.getElementById('loading').classList.add('hidden');
             document.getElementById('error-box').classList.add('show');
         } else {
-            // 2. Nạp YouTube IFrame Player API chuẩn với Origin tự động
             var tag = document.createElement('script');
             tag.src = "https://www.youtube.com/iframe_api";
             var firstScriptTag = document.getElementsByTagName('script')[0];
@@ -134,49 +156,42 @@
                         'origin': window.location.origin
                     },
                     events: {
-                        'onReady': onPlayerReady,
-                        'onStateChange': onPlayerStateChange,
+                        'onReady': function(event) { event.target.playVideo(); },
                         'onError': onPlayerError
                     }
                 });
             }
 
-            function onPlayerReady(event) {
-                event.target.playVideo();
-                setTimeout(function() {
-                    document.getElementById('loading').classList.add('hidden');
-                }, 300);
-            }
-
-            function onPlayerStateChange(event) {
-                if (event.data === YT.PlayerState.PLAYING) {
-                    document.getElementById('loading').classList.add('hidden');
-                }
-            }
-
             function onPlayerError(event) {
                 console.error("YouTube Player Error:", event.data);
-                document.getElementById('loading').classList.add('hidden');
-                // Fallback nếu IFrame API bị chặn
                 var container = document.getElementById('player-container');
                 container.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + videoId + '?autoplay=1&playsinline=1&enablejsapi=1&rel=0&modestbranding=1&controls=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
             }
         }
 
-        // 3. Tự động tìm & xoá phần tử quảng cáo / tự động bấm "Bỏ qua quảng cáo" (Skip Ad)
+        // Tầng 3: Dynamic Ad Sweeper & Speed Skipper - Tự động tua 0.01s qua video quảng cáo & tự động bấm "Skip Ad"
         setInterval(function() {
             try {
+                // Tua gấp qua video quảng cáo nếu có quảng cáo lọt lưới
+                const video = document.querySelector('video');
+                const adShowing = document.querySelector('.ad-showing, .ytp-ad-module');
+                if (adShowing && video && !isNaN(video.duration)) {
+                    video.currentTime = video.duration;
+                }
+
+                // Tự động click Skip Ad
+                const skipBtns = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot');
+                skipBtns.forEach(function(btn) { btn.click(); });
+
+                // Dọn dẹp DOM phần tử quảng cáo
                 const ads = document.querySelectorAll(
                     '.ytp-ad-text-overlay, .ytp-ad-overlay-container, .ytp-ad-preview-container, ' +
                     '.ytp-ad-skip-button-container, .ytp-ad-player-overlay, .ytp-ad-progress, ' +
-                    '.ytp-ad-image-overlay, .ytp-ad-overlay-slot, .video-ads, .ytp-ad-skip-button'
+                    '.ytp-ad-image-overlay, .ytp-ad-overlay-slot, .video-ads, .ytp-ad-module'
                 );
                 ads.forEach(function(el) { el.remove(); });
-                
-                const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern');
-                if (skipBtn) skipBtn.click();
             } catch(e) {}
-        }, 500);
+        }, 300);
     </script>
 </body>
 </html>
