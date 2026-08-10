@@ -3,929 +3,187 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>YouTube Ultra Ad-Free Player</title>
-    <meta name="description" content="Xem video YouTube hoàn toàn không quảng cáo với công nghệ Invidious/Piped proxy">
-    <meta name="theme-color" content="#0a0a0a">
+    <title>YouTube Ad-Free Player</title>
+    <meta name="description" content="Xem video YouTube không quảng cáo">
+    <meta name="theme-color" content="#000000">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>▶</text></svg>">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-
     <style>
-        /* ═══════════════════════════════════════════════════════
-           DESIGN SYSTEM
-           ═══════════════════════════════════════════════════════ */
-        :root {
-            --bg-primary: #0a0a0a;
-            --bg-surface: #141418;
-            --bg-elevated: #1c1c22;
-            --bg-glass: rgba(20, 20, 26, 0.75);
-            --border: rgba(255, 255, 255, 0.06);
-            --border-hover: rgba(255, 255, 255, 0.12);
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
 
-            --text-primary: #ececf0;
-            --text-secondary: #8888a0;
-            --text-muted: #55556a;
+        /* Player iframe — fullscreen tuyệt đối */
+        #player{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0;transition:opacity .4s ease}
+        #player.visible{opacity:1}
 
-            --accent-start: #8b5cf6;
-            --accent-end: #06b6d4;
-            --accent-gradient: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+        /* Nút đổi nguồn — nhỏ gọn, góc dưới phải, không che player */
+        #btn-switch{
+            position:fixed;bottom:6px;right:6px;
+            width:30px;height:30px;border-radius:50%;
+            background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.1);
+            color:rgba(255,255,255,.55);font-size:15px;
+            cursor:pointer;z-index:20;
+            display:none;align-items:center;justify-content:center;
+            -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+            transition:all .2s ease;
+            font-family:inherit;line-height:1;
+        }
+        #btn-switch.show{display:flex}
+        #btn-switch:active{transform:scale(.88);background:rgba(255,255,255,.15)}
 
-            --success: #22c55e;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-
-            --radius-sm: 8px;
-            --radius-md: 12px;
-            --radius-lg: 16px;
-            --radius-full: 9999px;
-
-            --shadow-glow: 0 0 40px rgba(139, 92, 246, 0.15);
-            --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        /* Màn hình lỗi — chỉ khi không có video ID */
+        #error{
+            position:fixed;inset:0;background:#000;
+            display:none;flex-direction:column;
+            align-items:center;justify-content:center;
+            color:#666;font-size:13px;text-align:center;z-index:10;
         }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        html, body {
-            width: 100%; height: 100%;
-            background: var(--bg-primary);
-            overflow: hidden;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            color: var(--text-primary);
-            -webkit-font-smoothing: antialiased;
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           SCREENS
-           ═══════════════════════════════════════════════════════ */
-        .screen {
-            position: fixed; inset: 0;
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
-            opacity: 0; visibility: hidden;
-            transition: opacity 0.5s ease, visibility 0.5s ease;
-            z-index: 5;
-        }
-        .screen.active { opacity: 1; visibility: visible; }
-
-        /* ═══════════════════════════════════════════════════════
-           LOADING SCREEN
-           ═══════════════════════════════════════════════════════ */
-        #loading { z-index: 10; background: var(--bg-primary); }
-
-        .loader { position: relative; width: 80px; height: 80px; margin-bottom: 32px; }
-
-        .loader-ring {
-            position: absolute; inset: 0;
-            border-radius: 50%;
-            border: 3px solid transparent;
-            border-top-color: var(--accent-start);
-            border-right-color: var(--accent-end);
-            animation: spin 1s linear infinite;
-        }
-        .loader-ring::before {
-            content: '';
-            position: absolute; inset: -3px;
-            border-radius: 50%;
-            border: 3px solid transparent;
-            border-bottom-color: rgba(139, 92, 246, 0.3);
-            animation: spin 2.5s linear infinite reverse;
-        }
-
-        .loader-icon {
-            position: absolute; inset: 0;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 22px;
-            background: var(--accent-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            animation: pulse 2s ease-in-out infinite;
-        }
-
-        .loader-title {
-            font-size: 18px; font-weight: 700;
-            background: var(--accent-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 8px;
-            letter-spacing: -0.02em;
-        }
-
-        .loader-status {
-            font-size: 14px; color: var(--text-secondary);
-            margin-bottom: 20px;
-            transition: var(--transition);
-        }
-
-        .progress-track {
-            width: 240px; height: 3px;
-            background: var(--bg-elevated);
-            border-radius: var(--radius-full);
-            overflow: hidden;
-            margin-bottom: 12px;
-        }
-        .progress-fill {
-            height: 100%; width: 0%;
-            background: var(--accent-gradient);
-            border-radius: var(--radius-full);
-            transition: width 0.4s ease;
-        }
-
-        .loader-detail {
-            font-size: 12px; color: var(--text-muted);
-            min-height: 18px;
-            transition: var(--transition);
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           PLAYER SCREEN
-           ═══════════════════════════════════════════════════════ */
-        #player-screen {
-            z-index: 1; background: #000;
-        }
-        #player-screen.active { z-index: 2; }
-
-        #video-frame {
-            width: 100% !important; height: 100% !important;
-            border: 0 !important;
-            position: absolute; inset: 0;
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           ERROR SCREEN
-           ═══════════════════════════════════════════════════════ */
-        #error { z-index: 10; background: var(--bg-primary); padding: 24px; text-align: center; }
-
-        .error-icon {
-            width: 72px; height: 72px;
-            border-radius: 50%;
-            background: rgba(239, 68, 68, 0.1);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 32px; margin-bottom: 20px;
-            border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-
-        .error-title {
-            font-size: 18px; font-weight: 600;
-            color: var(--danger); margin-bottom: 8px;
-        }
-
-        .error-desc {
-            font-size: 13px; color: var(--text-secondary);
-            max-width: 360px; line-height: 1.6;
-            margin-bottom: 24px;
-        }
-
-        .btn-retry {
-            padding: 10px 28px;
-            border: none; border-radius: var(--radius-full);
-            background: var(--accent-gradient);
-            color: white; font-size: 14px; font-weight: 600;
-            font-family: inherit;
-            cursor: pointer;
-            transition: var(--transition);
-            box-shadow: var(--shadow-glow);
-        }
-        .btn-retry:hover { transform: scale(1.05); filter: brightness(1.1); }
-        .btn-retry:active { transform: scale(0.98); }
-
-        /* ═══════════════════════════════════════════════════════
-           STATUS BAR (overlay on player)
-           ═══════════════════════════════════════════════════════ */
-        #status-bar {
-            position: fixed; top: 12px; right: 12px;
-            z-index: 50;
-            opacity: 0; transform: translateY(-10px);
-            transition: opacity 0.4s ease, transform 0.4s ease;
-            pointer-events: none;
-        }
-        #status-bar.visible {
-            opacity: 1; transform: translateY(0);
-            pointer-events: auto;
-        }
-        #status-bar.faded {
-            opacity: 0.35;
-        }
-        #status-bar.faded:hover {
-            opacity: 1;
-        }
-
-        .status-pill {
-            display: flex; align-items: center; gap: 8px;
-            padding: 6px 14px 6px 10px;
-            background: var(--bg-glass);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-full);
-            cursor: pointer;
-            transition: var(--transition);
-            user-select: none;
-        }
-        .status-pill:hover {
-            background: var(--bg-elevated);
-            border-color: var(--border-hover);
-        }
-
-        .status-dot {
-            width: 7px; height: 7px;
-            border-radius: 50%;
-            background: var(--success);
-            flex-shrink: 0;
-            box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
-            animation: dotPulse 2s ease-in-out infinite;
-        }
-        .status-dot.warning { background: var(--warning); box-shadow: 0 0 8px rgba(245, 158, 11, 0.5); }
-        .status-dot.danger { background: var(--danger); box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
-
-        .status-label {
-            font-size: 12px; font-weight: 500;
-            color: var(--text-secondary);
-            white-space: nowrap;
-        }
-
-        .status-switch {
-            display: flex; align-items: center; justify-content: center;
-            width: 22px; height: 22px;
-            background: rgba(255,255,255,0.06);
-            border: none; border-radius: 50%;
-            color: var(--text-secondary);
-            font-size: 12px;
-            cursor: pointer;
-            transition: var(--transition);
-            font-family: inherit;
-            margin-left: 2px;
-        }
-        .status-switch:hover { background: rgba(255,255,255,0.12); color: var(--text-primary); }
-
-        /* ═══════════════════════════════════════════════════════
-           SOURCE PANEL
-           ═══════════════════════════════════════════════════════ */
-        #source-panel {
-            position: fixed; top: 52px; right: 12px;
-            width: 320px; max-height: 80vh;
-            background: var(--bg-glass);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            z-index: 55;
-            overflow: hidden;
-            opacity: 0; visibility: hidden;
-            transform: translateY(-8px) scale(0.96);
-            transition: opacity 0.25s ease, visibility 0.25s ease, transform 0.25s ease;
-            box-shadow: 0 16px 48px rgba(0,0,0,0.5);
-        }
-        #source-panel.open {
-            opacity: 1; visibility: visible;
-            transform: translateY(0) scale(1);
-        }
-
-        .panel-header {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 14px 16px 10px;
-            border-bottom: 1px solid var(--border);
-        }
-        .panel-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-        .panel-close {
-            width: 24px; height: 24px;
-            display: flex; align-items: center; justify-content: center;
-            background: transparent; border: none; color: var(--text-muted);
-            cursor: pointer; border-radius: 50%; font-size: 14px; font-family: inherit;
-            transition: var(--transition);
-        }
-        .panel-close:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
-
-        .panel-body {
-            padding: 6px; max-height: 50vh;
-            overflow-y: auto;
-        }
-        .panel-body::-webkit-scrollbar { width: 4px; }
-        .panel-body::-webkit-scrollbar-thumb { background: var(--bg-elevated); border-radius: 2px; }
-
-        .source-item {
-            display: flex; align-items: center; gap: 10px;
-            padding: 10px 12px;
-            border-radius: var(--radius-sm);
-            cursor: pointer;
-            transition: var(--transition);
-            border: 1px solid transparent;
-        }
-        .source-item:hover { background: rgba(255,255,255,0.04); }
-        .source-item.active {
-            background: rgba(139, 92, 246, 0.08);
-            border-color: rgba(139, 92, 246, 0.2);
-        }
-
-        .source-status-dot {
-            width: 8px; height: 8px;
-            border-radius: 50%; flex-shrink: 0;
-            background: var(--text-muted);
-        }
-        .source-status-dot.online { background: var(--success); }
-        .source-status-dot.offline { background: var(--danger); }
-        .source-status-dot.checking { background: var(--warning); animation: dotPulse 1s infinite; }
-
-        .source-info { flex: 1; min-width: 0; }
-        .source-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
-        .source-host { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
-
-        .source-badge {
-            font-size: 10px; font-weight: 600;
-            padding: 2px 8px;
-            border-radius: var(--radius-full);
-            white-space: nowrap;
-        }
-        .badge-adfree { background: rgba(34, 197, 94, 0.1); color: var(--success); }
-        .badge-ads { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
-
-        .source-latency {
-            font-size: 10px; color: var(--text-muted);
-            font-variant-numeric: tabular-nums;
-        }
-
-        .panel-footer {
-            padding: 10px 16px 14px;
-            border-top: 1px solid var(--border);
-        }
-        .panel-note {
-            font-size: 11px; color: var(--text-muted);
-            line-height: 1.5;
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           TOAST NOTIFICATION
-           ═══════════════════════════════════════════════════════ */
-        #toast {
-            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
-            padding: 10px 20px;
-            background: var(--bg-glass);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-full);
-            font-size: 13px; font-weight: 500;
-            color: var(--text-primary);
-            z-index: 60;
-            opacity: 0; visibility: hidden;
-            transition: opacity 0.4s ease, transform 0.4s ease, visibility 0.4s ease;
-            white-space: nowrap;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-        }
-        #toast.show {
-            opacity: 1; visibility: visible;
-            transform: translateX(-50%) translateY(0);
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           ANIMATIONS
-           ═══════════════════════════════════════════════════════ */
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.6; transform: scale(0.95); }
-        }
-        @keyframes dotPulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           RESPONSIVE
-           ═══════════════════════════════════════════════════════ */
-        @media (max-width: 480px) {
-            .loader-title { font-size: 16px; }
-            .progress-track { width: 200px; }
-            #source-panel {
-                right: 8px; left: 8px; width: auto;
-                top: auto; bottom: 0;
-                border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-                max-height: 65vh;
-                transform: translateY(10px);
-            }
-            #source-panel.open { transform: translateY(0); }
-            #status-bar { top: 8px; right: 8px; }
-        }
+        #error.show{display:flex}
+        #error b{color:#999}
     </style>
 </head>
 <body>
 
-    <!-- ═══════════ LOADING SCREEN ═══════════ -->
-    <div id="loading" class="screen active">
-        <div class="loader">
-            <div class="loader-ring"></div>
-            <div class="loader-icon">▶</div>
-        </div>
-        <h1 class="loader-title">YouTube Ad-Free Player</h1>
-        <p class="loader-status" id="load-status">Đang tìm server tốt nhất...</p>
-        <div class="progress-track">
-            <div class="progress-fill" id="progress-fill"></div>
-        </div>
-        <p class="loader-detail" id="load-detail"></p>
-    </div>
+<iframe id="player" allowfullscreen
+    allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture;fullscreen">
+</iframe>
 
-    <!-- ═══════════ PLAYER SCREEN ═══════════ -->
-    <div id="player-screen" class="screen">
-        <iframe id="video-frame"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-            allowfullscreen>
-        </iframe>
-    </div>
+<button id="btn-switch" title="Đổi nguồn phát">⟳</button>
 
-    <!-- ═══════════ ERROR SCREEN ═══════════ -->
-    <div id="error" class="screen">
-        <div class="error-icon">⚠</div>
-        <h2 class="error-title" id="error-title">Không tìm thấy Video</h2>
-        <p class="error-desc" id="error-desc">Vui lòng truyền tham số <b>?v=VIDEO_ID</b> hoặc dán link YouTube hợp lệ.</p>
-        <button class="btn-retry" id="btn-retry" style="display:none">Thử lại</button>
-    </div>
+<div id="error">
+    <p>Không tìm thấy Video ID</p>
+    <p style="margin-top:6px">Truyền tham số <b>?v=VIDEO_ID</b></p>
+</div>
 
-    <!-- ═══════════ STATUS BAR ═══════════ -->
-    <div id="status-bar">
-        <div class="status-pill" id="status-pill">
-            <span class="status-dot" id="status-dot"></span>
-            <span class="status-label" id="status-label">Đang kết nối</span>
-            <button class="status-switch" id="switch-btn" title="Đổi nguồn">⇅</button>
-        </div>
-    </div>
+<script>
+(function(){
+    'use strict';
 
-    <!-- ═══════════ SOURCE PANEL ═══════════ -->
-    <div id="source-panel">
-        <div class="panel-header">
-            <span class="panel-title">Chọn nguồn phát</span>
-            <button class="panel-close" id="panel-close">✕</button>
-        </div>
-        <div class="panel-body" id="source-list"></div>
-        <div class="panel-footer">
-            <p class="panel-note">🟢 Piped / Invidious = <b>100% không quảng cáo</b></p>
-            <p class="panel-note">🔴 YouTube = có thể có quảng cáo (fallback)</p>
-        </div>
-    </div>
+    /* ══════════════ INSTANCE REGISTRY ══════════════ */
+    var PROXIES = [
+        {id:'inv1', host:'vid.puffyan.us',         type:'invidious'},
+        {id:'inv2', host:'yewtu.be',               type:'invidious'},
+        {id:'inv3', host:'inv.nadeko.net',          type:'invidious'},
+        {id:'inv4', host:'invidious.nerdvpn.de',    type:'invidious'},
+        {id:'inv5', host:'invidious.protokolla.fi', type:'invidious'},
+        {id:'inv6', host:'invidious.lunar.icu',     type:'invidious'},
+        {id:'pip1', host:'piped.video',             type:'piped'},
+        {id:'pip2', host:'piped.adminforge.de',     type:'piped'},
+        {id:'pip3', host:'piped.r4fo.com',          type:'piped'},
+        {id:'pip4', host:'piped.lunar.icu',         type:'piped'}
+    ];
+    var YT = {id:'yt', host:'www.youtube-nocookie.com', type:'youtube'};
+    var ALL = PROXIES.concat([YT]);
+    var CACHE_KEY = 'ytaf_src';
+    var RACE_MS  = 3000;  // Deadline: 3 giây cho health-check, sau đó → YouTube
 
-    <!-- ═══════════ TOAST ═══════════ -->
-    <div id="toast"></div>
+    /* ══════════════ DOM ══════════════ */
+    var $player = document.getElementById('player');
+    var $btn    = document.getElementById('btn-switch');
+    var $error  = document.getElementById('error');
+    var curIdx  = -1;
 
-    <script>
-    (function() {
-        'use strict';
+    /* ══════════════ EXTRACT VIDEO ID ══════════════ */
+    function extractId(s){
+        if(!s) return null;
+        s = s.trim();
+        if(/^[a-zA-Z0-9_-]{11}$/.test(s)) return s;
+        var m = s.match(/(?:[?&]v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/|\/v\/)([a-zA-Z0-9_-]{11})/);
+        return m ? m[1] : null;
+    }
 
-        /* ═══════════════════════════════════════════════════════
-           INSTANCE REGISTRY
-           ═══════════════════════════════════════════════════════ */
-        const SOURCES = [
-            // Piped instances — 100% ad-free + SponsorBlock tích hợp sẵn
-            { id: 'piped-1', name: 'Piped',        host: 'piped.video',              type: 'piped',     health: 'https://pipedapi.kavin.rocks/healthcheck' },
-            { id: 'piped-2', name: 'Piped DE',      host: 'piped.adminforge.de',      type: 'piped',     health: 'https://pipedapi.adminforge.de/healthcheck' },
-            { id: 'piped-3', name: 'Piped R4FO',    host: 'piped.r4fo.com',           type: 'piped',     health: 'https://pipedapi.r4fo.com/healthcheck' },
-            { id: 'piped-4', name: 'Piped Lunar',   host: 'piped.lunar.icu',          type: 'piped',     health: 'https://pipedapi.lunar.icu/healthcheck' },
+    var qs      = new URLSearchParams(window.location.search);
+    var videoId = extractId(qs.get('v')||'') || extractId(window.location.href);
+    var startAt = qs.get('t') || qs.get('start') || '';
 
-            // Invidious instances — 100% ad-free
-            { id: 'inv-1',   name: 'Invidious',      host: 'vid.puffyan.us',           type: 'invidious', health: 'https://vid.puffyan.us/api/v1/stats' },
-            { id: 'inv-2',   name: 'Invidious DE',   host: 'invidious.nerdvpn.de',     type: 'invidious', health: 'https://invidious.nerdvpn.de/api/v1/stats' },
-            { id: 'inv-3',   name: 'Yewtu.be',       host: 'yewtu.be',                 type: 'invidious', health: 'https://yewtu.be/api/v1/stats' },
-            { id: 'inv-4',   name: 'Invidious FI',   host: 'invidious.protokolla.fi',  type: 'invidious', health: 'https://invidious.protokolla.fi/api/v1/stats' },
-            { id: 'inv-5',   name: 'Inv Nadeko',     host: 'inv.nadeko.net',           type: 'invidious', health: 'https://inv.nadeko.net/api/v1/stats' },
-            { id: 'inv-6',   name: 'Invidious Lunar', host: 'invidious.lunar.icu',     type: 'invidious', health: 'https://invidious.lunar.icu/api/v1/stats' },
+    if(!videoId){ $error.classList.add('show'); return; }
 
-            // YouTube fallback — có thể có quảng cáo
-            { id: 'yt',      name: 'YouTube',        host: 'www.youtube-nocookie.com', type: 'youtube',   health: null }
-        ];
+    /* ══════════════ BUILD EMBED URL ══════════════ */
+    function embedUrl(src){
+        var u = 'https://'+src.host+'/embed/'+videoId+'?autoplay=1';
+        if(src.type==='invidious') u += '&quality=dash&player_style=youtube';
+        if(src.type==='youtube')   u += '&rel=0&modestbranding=1';
+        if(startAt) u += '&start='+encodeURIComponent(startAt);
+        return u;
+    }
 
-        const CACHE_KEY = 'ytaf_last_source';
-        const HEALTH_TIMEOUT = 5000;
+    /* ══════════════ LOAD SOURCE ══════════════ */
+    function load(src){
+        $player.classList.remove('visible');
+        $player.src = embedUrl(src);
+        $player.onload = function(){ $player.classList.add('visible'); };
+        try{ localStorage.setItem(CACHE_KEY, src.id); }catch(e){}
+    }
 
-        /* ═══════════════════════════════════════════════════════
-           STATE
-           ═══════════════════════════════════════════════════════ */
-        let currentSource = null;
-        let healthResults = new Map(); // id → { healthy, latency, status }
-        let videoId = null;
-        let extraParams = {};
-        let panelOpen = false;
+    /* ══════════════ RACE: no-cors ping ══════════════
+       Gửi ping tất cả instances cùng lúc.
+       Instance đầu tiên phản hồi → dùng luôn.
+       Sau 3 giây không ai trả lời → YouTube fallback. */
+    function race(){
+        return new Promise(function(resolve){
+            var done = false;
+            var aborts = [];
 
-        /* ═══════════════════════════════════════════════════════
-           DOM REFERENCES
-           ═══════════════════════════════════════════════════════ */
-        const $loading     = document.getElementById('loading');
-        const $loadStatus  = document.getElementById('load-status');
-        const $loadDetail  = document.getElementById('load-detail');
-        const $progressFill= document.getElementById('progress-fill');
-        const $playerScreen= document.getElementById('player-screen');
-        const $videoFrame  = document.getElementById('video-frame');
-        const $error       = document.getElementById('error');
-        const $errorTitle  = document.getElementById('error-title');
-        const $errorDesc   = document.getElementById('error-desc');
-        const $btnRetry    = document.getElementById('btn-retry');
-        const $statusBar   = document.getElementById('status-bar');
-        const $statusPill  = document.getElementById('status-pill');
-        const $statusDot   = document.getElementById('status-dot');
-        const $statusLabel = document.getElementById('status-label');
-        const $switchBtn   = document.getElementById('switch-btn');
-        const $sourcePanel = document.getElementById('source-panel');
-        const $sourceList  = document.getElementById('source-list');
-        const $panelClose  = document.getElementById('panel-close');
-        const $toast       = document.getElementById('toast');
+            var timer = setTimeout(function(){
+                if(!done){ done=true; cleanup(); resolve(null); }
+            }, RACE_MS);
 
-        /* ═══════════════════════════════════════════════════════
-           URL PARSING
-           ═══════════════════════════════════════════════════════ */
-        function extractVideoId(url) {
-            if (!url) return null;
-            var str = url.trim();
-            // Plain 11-char ID
-            if (/^[a-zA-Z0-9_-]{11}$/.test(str)) return str;
-            // YouTube URL patterns
-            var match = str.match(/(?:[?&]v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/|\/v\/)([a-zA-Z0-9_-]{11})/);
-            return match ? match[1] : null;
-        }
-
-        function parseUrlParams() {
-            var params = new URLSearchParams(window.location.search);
-            var raw = params.get('v') || '';
-            videoId = extractVideoId(raw) || extractVideoId(window.location.href);
-            extraParams = {
-                t:    params.get('t') || params.get('start') || '',
-                list: params.get('list') || ''
-            };
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           EMBED URL BUILDER
-           ═══════════════════════════════════════════════════════ */
-        function buildEmbedUrl(source, vid) {
-            var base = 'https://' + source.host + '/embed/' + vid + '?autoplay=1';
-
-            if (source.type === 'piped') {
-                // Piped handles ads + SponsorBlock server-side
-                base += '&listen=false';
-            } else if (source.type === 'invidious') {
-                base += '&quality=dash&player_style=youtube';
-            } else {
-                // YouTube fallback
-                base += '&rel=0&modestbranding=1';
+            function cleanup(){
+                clearTimeout(timer);
+                aborts.forEach(function(a){ try{a.abort();}catch(e){} });
             }
 
-            if (extraParams.t)    base += '&start=' + encodeURIComponent(extraParams.t);
-            if (extraParams.list) base += '&list='  + encodeURIComponent(extraParams.list);
-
-            return base;
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           HEALTH CHECKER
-           ═══════════════════════════════════════════════════════ */
-        function fetchWithTimeout(url, timeout, opts) {
-            var controller = new AbortController();
-            var id = setTimeout(function() { controller.abort(); }, timeout);
-            var options = Object.assign({}, opts || {}, { signal: controller.signal, cache: 'no-cache' });
-            return fetch(url, options).then(function(res) {
-                clearTimeout(id);
-                return res;
-            }).catch(function(err) {
-                clearTimeout(id);
-                throw err;
+            PROXIES.forEach(function(src){
+                var ac = new AbortController();
+                aborts.push(ac);
+                fetch('https://'+src.host+'/', {mode:'no-cors', cache:'no-cache', signal:ac.signal})
+                    .then(function(){
+                        if(!done){ done=true; cleanup(); resolve(src); }
+                    })
+                    .catch(function(){});
             });
-        }
+        });
+    }
 
-        function checkInstance(source) {
-            // YouTube is always "available" as final fallback
-            if (!source.health) {
-                return Promise.resolve({ source: source, healthy: true, latency: 99999, status: 'fallback' });
-            }
+    /* ══════════════ RETRY BUTTON ══════════════ */
+    $btn.addEventListener('click', function(){
+        curIdx = (curIdx + 1) % ALL.length;
+        load(ALL[curIdx]);
+    });
 
-            var start = performance.now();
+    // Hiện nút sau 4 giây
+    setTimeout(function(){ $btn.classList.add('show'); }, 4000);
 
-            // Try CORS-friendly health endpoint
-            return fetchWithTimeout(source.health, HEALTH_TIMEOUT)
-                .then(function(res) {
-                    var latency = Math.round(performance.now() - start);
-                    return { source: source, healthy: res.ok, latency: latency, status: res.ok ? 'online' : 'error' };
-                })
-                .catch(function(err) {
-                    // CORS error or network error — try no-cors ping
-                    if (err.name === 'AbortError') {
-                        return { source: source, healthy: false, latency: -1, status: 'timeout' };
-                    }
-                    var start2 = performance.now();
-                    return fetchWithTimeout(source.health, 3000, { mode: 'no-cors' })
-                        .then(function() {
-                            var lat = Math.round(performance.now() - start2);
-                            return { source: source, healthy: true, latency: lat + 500, status: 'cors-ok' };
-                        })
-                        .catch(function() {
-                            return { source: source, healthy: false, latency: -1, status: 'offline' };
-                        });
-                });
-        }
+    /* ══════════════ INIT ══════════════ */
+    // 1) Kiểm tra cache
+    var cachedId = null;
+    try{ cachedId = localStorage.getItem(CACHE_KEY); }catch(e){}
+    var cached = cachedId ? ALL.find(function(s){return s.id===cachedId;}) : null;
 
-        /* ═══════════════════════════════════════════════════════
-           INSTANCE DISCOVERY — "Race" approach
-           ═══════════════════════════════════════════════════════ */
-        function discoverInstances() {
-            var checked = 0;
-            var total = SOURCES.length;
-            var allResults = [];
-            var resolved = false;
+    if(cached && cached.type !== 'youtube'){
+        // Có cache → load ngay lập tức (0 delay)
+        curIdx = ALL.indexOf(cached);
+        load(cached);
 
-            // Mark all as "checking"
-            SOURCES.forEach(function(s) {
-                healthResults.set(s.id, { healthy: null, latency: -1, status: 'checking' });
-            });
-            renderSourceList();
-
-            return new Promise(function(resolve) {
-                // Check cached instance first for instant load
-                var cached = getCachedSource();
-                var fastTrackPromise = null;
-
-                if (cached) {
-                    $loadDetail.textContent = 'Thử kết nối ' + cached.name + ' (đã lưu)...';
-                    fastTrackPromise = checkInstance(cached).then(function(result) {
-                        if (result.healthy && result.status !== 'fallback') {
-                            healthResults.set(result.source.id, result);
-                            if (!resolved) {
-                                resolved = true;
-                                resolve(result.source);
-                            }
-                        }
-                    });
-                }
-
-                // Check all instances in parallel
-                var instancePromises = SOURCES.map(function(source) {
-                    return checkInstance(source).then(function(result) {
-                        checked++;
-                        healthResults.set(source.id, result);
-
-                        // Update UI progress
-                        var pct = Math.round((checked / total) * 100);
-                        $progressFill.style.width = pct + '%';
-                        $loadDetail.textContent = 'Đã kiểm tra ' + checked + '/' + total + ' — ' + source.name;
-
-                        renderSourceList();
-
-                        // First healthy non-YouTube instance wins
-                        if (result.healthy && result.status !== 'fallback' && !resolved) {
-                            resolved = true;
-                            resolve(result.source);
-                        }
-
-                        return result;
-                    });
-                });
-
-                // If all checks complete and none resolved → fallback
-                Promise.allSettled(instancePromises).then(function(results) {
-                    if (!resolved) {
-                        // Find YouTube fallback
-                        var yt = SOURCES.find(function(s) { return s.type === 'youtube'; });
-                        resolved = true;
-                        resolve(yt || null);
-                    }
+        // Ping cache instance ở background, nếu chết → auto chuyển
+        fetch('https://'+cached.host+'/', {mode:'no-cors', cache:'no-cache'})
+            .catch(function(){
+                // Cache instance chết → race tìm cái mới
+                race().then(function(winner){
+                    var src = winner || YT;
+                    curIdx = ALL.indexOf(src);
+                    load(src);
                 });
             });
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           PLAYER CONTROL
-           ═══════════════════════════════════════════════════════ */
-        function loadSource(source) {
-            if (!source || !videoId) return;
-
-            currentSource = source;
-            setCachedSource(source);
-
-            var url = buildEmbedUrl(source, videoId);
-            $videoFrame.src = url;
-
-            // Switch screens
-            $loading.classList.remove('active');
-            $error.classList.remove('active');
-            $playerScreen.classList.add('active');
-
-            // Update status bar
-            updateStatusBar(source);
-            showStatusBar();
-
-            // Toast notification
-            if (source.type !== 'youtube') {
-                showToast('✅ Không quảng cáo • Đang phát từ ' + source.name);
-            } else {
-                showToast('⚠️ Fallback YouTube • Có thể có quảng cáo');
-            }
-
-            // Auto-fade status bar after 4 seconds
-            setTimeout(function() {
-                $statusBar.classList.add('faded');
-            }, 4000);
-        }
-
-        function switchToSource(source) {
-            if (!source || !videoId) return;
-            currentSource = source;
-            setCachedSource(source);
-
-            var url = buildEmbedUrl(source, videoId);
-            $videoFrame.src = url;
-
-            updateStatusBar(source);
-            closePanel();
-
-            if (source.type !== 'youtube') {
-                showToast('🔄 Đã chuyển sang ' + source.name);
-            } else {
-                showToast('⚠️ Đã chuyển sang YouTube (có thể có QC)');
-            }
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           UI HELPERS
-           ═══════════════════════════════════════════════════════ */
-        function updateStatusBar(source) {
-            $statusLabel.textContent = source.name;
-            $statusDot.className = 'status-dot';
-            if (source.type === 'youtube') {
-                $statusDot.classList.add('warning');
-            }
-        }
-
-        function showStatusBar() {
-            $statusBar.classList.add('visible');
-            $statusBar.classList.remove('faded');
-        }
-
-        function showToast(msg) {
-            $toast.textContent = msg;
-            $toast.classList.add('show');
-            setTimeout(function() { $toast.classList.remove('show'); }, 3500);
-        }
-
-        function showError(title, desc, retryable) {
-            $loading.classList.remove('active');
-            $playerScreen.classList.remove('active');
-            $errorTitle.textContent = title;
-            $errorDesc.innerHTML = desc;
-            $btnRetry.style.display = retryable ? 'inline-block' : 'none';
-            $error.classList.add('active');
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           SOURCE LIST RENDERING
-           ═══════════════════════════════════════════════════════ */
-        function renderSourceList() {
-            var html = '';
-            SOURCES.forEach(function(source) {
-                var result = healthResults.get(source.id) || { healthy: null, latency: -1, status: 'checking' };
-                var dotClass = 'source-status-dot';
-                if (result.status === 'checking') dotClass += ' checking';
-                else if (result.healthy) dotClass += ' online';
-                else if (result.healthy === false) dotClass += ' offline';
-
-                var isActive = currentSource && currentSource.id === source.id;
-                var badge = source.type !== 'youtube'
-                    ? '<span class="source-badge badge-adfree">AD-FREE</span>'
-                    : '<span class="source-badge badge-ads">CÓ QC</span>';
-
-                var latencyText = '';
-                if (result.latency > 0 && result.latency < 99999) {
-                    latencyText = '<span class="source-latency">' + result.latency + 'ms</span>';
-                }
-
-                html += '<div class="source-item' + (isActive ? ' active' : '') + '" data-id="' + source.id + '">'
-                    + '<span class="' + dotClass + '"></span>'
-                    + '<div class="source-info">'
-                    + '<div class="source-name">' + source.name + '</div>'
-                    + '<div class="source-host">' + source.host + '</div>'
-                    + '</div>'
-                    + badge
-                    + latencyText
-                    + '</div>';
-            });
-            $sourceList.innerHTML = html;
-
-            // Attach click handlers
-            var items = $sourceList.querySelectorAll('.source-item');
-            items.forEach(function(item) {
-                item.addEventListener('click', function() {
-                    var id = this.getAttribute('data-id');
-                    var source = SOURCES.find(function(s) { return s.id === id; });
-                    var result = healthResults.get(id);
-                    if (source && (result && result.healthy || source.type === 'youtube')) {
-                        switchToSource(source);
-                    } else if (source) {
-                        showToast('❌ ' + source.name + ' đang offline');
-                    }
-                });
-            });
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           PANEL CONTROL
-           ═══════════════════════════════════════════════════════ */
-        function togglePanel() {
-            panelOpen = !panelOpen;
-            if (panelOpen) {
-                renderSourceList();
-                $sourcePanel.classList.add('open');
-            } else {
-                $sourcePanel.classList.remove('open');
-            }
-        }
-
-        function closePanel() {
-            panelOpen = false;
-            $sourcePanel.classList.remove('open');
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           LOCALSTORAGE CACHE
-           ═══════════════════════════════════════════════════════ */
-        function getCachedSource() {
-            try {
-                var id = localStorage.getItem(CACHE_KEY);
-                if (!id) return null;
-                return SOURCES.find(function(s) { return s.id === id; }) || null;
-            } catch(e) { return null; }
-        }
-
-        function setCachedSource(source) {
-            try { localStorage.setItem(CACHE_KEY, source.id); } catch(e) {}
-        }
-
-        /* ═══════════════════════════════════════════════════════
-           EVENT LISTENERS
-           ═══════════════════════════════════════════════════════ */
-        $statusPill.addEventListener('click', function(e) {
-            if (e.target === $switchBtn || $switchBtn.contains(e.target)) return;
-            togglePanel();
+    } else {
+        // Không cache → race tất cả instances
+        race().then(function(winner){
+            var src = winner || YT;
+            curIdx = ALL.indexOf(src);
+            if(curIdx < 0) curIdx = ALL.length - 1;
+            load(src);
         });
-        $switchBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            togglePanel();
-        });
-        $panelClose.addEventListener('click', closePanel);
-
-        // Close panel when clicking outside
-        document.addEventListener('click', function(e) {
-            if (panelOpen && !$sourcePanel.contains(e.target) && !$statusPill.contains(e.target)) {
-                closePanel();
-            }
-        });
-
-        $btnRetry.addEventListener('click', function() {
-            $error.classList.remove('active');
-            $loading.classList.add('active');
-            $progressFill.style.width = '0%';
-            $loadStatus.textContent = 'Đang thử lại...';
-            $loadDetail.textContent = '';
-            init();
-        });
-
-        /* ═══════════════════════════════════════════════════════
-           INITIALIZATION
-           ═══════════════════════════════════════════════════════ */
-        function init() {
-            parseUrlParams();
-
-            if (!videoId) {
-                showError(
-                    'Không tìm thấy Video ID',
-                    'Vui lòng truyền tham số <b>?v=VIDEO_ID</b> hoặc dán link YouTube hợp lệ.<br><br>'
-                    + '<span style="color:var(--text-muted);font-size:12px">'
-                    + 'Ví dụ: ?v=dQw4w9WgXcQ<br>'
-                    + 'Hoặc: ?v=https://youtu.be/dQw4w9WgXcQ</span>',
-                    false
-                );
-                return;
-            }
-
-            $loadStatus.textContent = 'Đang tìm server không quảng cáo...';
-
-            discoverInstances().then(function(bestSource) {
-                if (bestSource) {
-                    loadSource(bestSource);
-                } else {
-                    showError(
-                        'Không có server nào hoạt động',
-                        'Tất cả Invidious/Piped instances đều offline. Vui lòng thử lại sau.',
-                        true
-                    );
-                }
-            }).catch(function(err) {
-                console.error('Discovery error:', err);
-                // Emergency fallback to YouTube
-                var yt = SOURCES.find(function(s) { return s.type === 'youtube'; });
-                if (yt) loadSource(yt);
-            });
-        }
-
-        // Start
-        init();
-    })();
-    </script>
+    }
+})();
+</script>
 </body>
 </html>
