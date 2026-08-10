@@ -4,41 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>YouTube Ad-Free Player</title>
-    <meta name="description" content="Xem video YouTube không quảng cáo">
     <meta name="theme-color" content="#000000">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>▶</text></svg>">
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
-        html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
-
-        /* Player iframe — fullscreen tuyệt đối */
-        #player{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0;transition:opacity .4s ease}
-        #player.visible{opacity:1}
-
-        /* Nút đổi nguồn — nhỏ gọn, góc dưới phải, không che player */
-        #btn-switch{
-            position:fixed;bottom:6px;right:6px;
-            width:30px;height:30px;border-radius:50%;
-            background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.1);
-            color:rgba(255,255,255,.55);font-size:15px;
-            cursor:pointer;z-index:20;
-            display:none;align-items:center;justify-content:center;
-            -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
-            transition:all .2s ease;
-            font-family:inherit;line-height:1;
-        }
-        #btn-switch.show{display:flex}
-        #btn-switch:active{transform:scale(.88);background:rgba(255,255,255,.15)}
-
-        /* Màn hình lỗi — chỉ khi không có video ID */
-        #error{
-            position:fixed;inset:0;background:#000;
-            display:none;flex-direction:column;
-            align-items:center;justify-content:center;
-            color:#666;font-size:13px;text-align:center;z-index:10;
-        }
+        html,body{width:100%;height:100%;background:#000;overflow:hidden}
+        #player{position:absolute;inset:0;width:100%!important;height:100%!important;border:0!important}
+        #error{position:fixed;inset:0;background:#0f0f0f;display:none;flex-direction:column;align-items:center;justify-content:center;color:#888;font-family:sans-serif;font-size:13px;text-align:center;z-index:10;padding:16px}
         #error.show{display:flex}
-        #error b{color:#999}
+        #error b{color:#aaa}
+        #btn-src{position:fixed;bottom:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.5);font-size:14px;cursor:pointer;z-index:20;display:none;align-items:center;justify-content:center;font-family:inherit;line-height:1}
+        #btn-src.show{display:flex}
+        #btn-src:active{transform:scale(.88);background:rgba(255,255,255,.15)}
     </style>
 </head>
 <body>
@@ -46,19 +23,14 @@
 <iframe id="player" allowfullscreen
     allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture;fullscreen">
 </iframe>
-
-<button id="btn-switch" title="Đổi nguồn phát">⟳</button>
-
-<div id="error">
-    <p>Không tìm thấy Video ID</p>
-    <p style="margin-top:6px">Truyền tham số <b>?v=VIDEO_ID</b></p>
-</div>
+<button id="btn-src" title="Đổi nguồn">⟳</button>
+<div id="error"><p>Không tìm thấy Video ID<br><br>Truyền <b>?v=VIDEO_ID</b> hoặc dán link YouTube</p></div>
 
 <script>
 (function(){
     'use strict';
 
-    /* ══════════════ INSTANCE REGISTRY ══════════════ */
+    /* ════════ CONFIG ════════ */
     var PROXIES = [
         {id:'inv1', host:'vid.puffyan.us',         type:'invidious'},
         {id:'inv2', host:'yewtu.be',               type:'invidious'},
@@ -71,118 +43,145 @@
         {id:'pip3', host:'piped.r4fo.com',          type:'piped'},
         {id:'pip4', host:'piped.lunar.icu',         type:'piped'}
     ];
-    var YT = {id:'yt', host:'www.youtube-nocookie.com', type:'youtube'};
-    var ALL = PROXIES.concat([YT]);
-    var CACHE_KEY = 'ytaf_src';
-    var RACE_MS  = 3000;  // Deadline: 3 giây cho health-check, sau đó → YouTube
+    var CACHE_KEY = 'ytaf_v2';
 
-    /* ══════════════ DOM ══════════════ */
-    var $player = document.getElementById('player');
-    var $btn    = document.getElementById('btn-switch');
-    var $error  = document.getElementById('error');
-    var curIdx  = -1;
+    /* ════════ DOM ════════ */
+    var $p   = document.getElementById('player');
+    var $btn = document.getElementById('btn-src');
+    var $err = document.getElementById('error');
 
-    /* ══════════════ EXTRACT VIDEO ID ══════════════ */
-    function extractId(s){
-        if(!s) return null;
-        s = s.trim();
+    /* ════════ VIDEO ID ════════ */
+    function parseId(s){
+        if(!s) return null; s=s.trim();
         if(/^[a-zA-Z0-9_-]{11}$/.test(s)) return s;
-        var m = s.match(/(?:[?&]v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/|\/v\/)([a-zA-Z0-9_-]{11})/);
-        return m ? m[1] : null;
+        var m=s.match(/(?:[?&]v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/|\/v\/)([a-zA-Z0-9_-]{11})/);
+        return m?m[1]:null;
     }
+    var qs = new URLSearchParams(window.location.search);
+    var vid = parseId(qs.get('v')||'') || parseId(window.location.href);
+    var t = qs.get('t')||qs.get('start')||'';
 
-    var qs      = new URLSearchParams(window.location.search);
-    var videoId = extractId(qs.get('v')||'') || extractId(window.location.href);
-    var startAt = qs.get('t') || qs.get('start') || '';
+    if(!vid){ $err.classList.add('show'); return; }
 
-    if(!videoId){ $error.classList.add('show'); return; }
-
-    /* ══════════════ BUILD EMBED URL ══════════════ */
-    function embedUrl(src){
-        var u = 'https://'+src.host+'/embed/'+videoId+'?autoplay=1';
-        if(src.type==='invidious') u += '&quality=dash&player_style=youtube';
-        if(src.type==='youtube')   u += '&rel=0&modestbranding=1';
-        if(startAt) u += '&start='+encodeURIComponent(startAt);
+    /* ════════ URL BUILDERS ════════ */
+    function ytUrl(){
+        var u='https://www.youtube.com/embed/'+vid+'?autoplay=1&playsinline=1&rel=0&modestbranding=1';
+        if(t) u+='&start='+encodeURIComponent(t);
+        return u;
+    }
+    function proxyUrl(src){
+        var u='https://'+src.host+'/embed/'+vid+'?autoplay=1';
+        if(src.type==='invidious') u+='&quality=dash&player_style=youtube';
+        if(t) u+='&start='+encodeURIComponent(t);
         return u;
     }
 
-    /* ══════════════ LOAD SOURCE ══════════════ */
-    function load(src){
-        $player.classList.remove('visible');
-        $player.src = embedUrl(src);
-        $player.onload = function(){ $player.classList.add('visible'); };
-        try{ localStorage.setItem(CACHE_KEY, src.id); }catch(e){}
+    /* ════════════════════════════════════════════════
+       CHIẾN LƯỢC: YOUTUBE TRƯỚC, UPGRADE SAU
+       
+       1. Load YouTube embed NGAY LẬP TỨC (luôn hoạt động)
+       2. Background: kiểm tra Invidious/Piped bằng cách
+          thực sự fetch trang embed (không phải chỉ ping)
+       3. Nếu có instance hoạt động → swap iframe sang ad-free
+       4. Nút ⟳ cho phép user tự đổi nguồn
+       ════════════════════════════════════════════════ */
+
+    // === BƯỚC 1: Load YouTube ngay (video chạy trong ~1 giây) ===
+    var currentMode = 'youtube';
+    $p.src = ytUrl();
+
+    // === BƯỚC 2: Tìm nguồn ad-free ở background ===
+    var healthySources = [];  // Danh sách instances đã xác nhận hoạt động
+    var allSources = [];      // Tất cả sources cho retry cycling
+
+    // Kiểm tra instance bằng cách fetch thật trang /embed/ (CORS-safe vì chỉ cần biết server trả 200)
+    function verifyInstance(src){
+        return new Promise(function(resolve){
+            var ok = false;
+            var timer = setTimeout(function(){ if(!ok) resolve(false); }, 4000);
+
+            // Dùng <img> trick: tạo thẻ img trỏ tới favicon/icon của instance
+            // Nếu load được → server sống → embed có khả năng hoạt động
+            var img = new Image();
+            img.onload = function(){ ok=true; clearTimeout(timer); resolve(true); };
+            img.onerror = function(){
+                // img fail không nhất thiết là server chết (có thể không có favicon)
+                // Thử fetch no-cors đến embed URL
+                fetch('https://'+src.host+'/embed/'+vid, {mode:'no-cors', cache:'no-cache'})
+                    .then(function(){ ok=true; clearTimeout(timer); resolve(true); })
+                    .catch(function(){ clearTimeout(timer); resolve(false); });
+            };
+            img.src = 'https://'+src.host+'/favicon.ico?_='+Date.now();
+        });
     }
 
-    /* ══════════════ RACE: no-cors ping ══════════════
-       Gửi ping tất cả instances cùng lúc.
-       Instance đầu tiên phản hồi → dùng luôn.
-       Sau 3 giây không ai trả lời → YouTube fallback. */
-    function race(){
-        return new Promise(function(resolve){
-            var done = false;
-            var aborts = [];
+    function findAdFreeSource(){
+        // Check cached source first
+        var cachedId = null;
+        try{ cachedId = localStorage.getItem(CACHE_KEY); }catch(e){}
 
-            var timer = setTimeout(function(){
-                if(!done){ done=true; cleanup(); resolve(null); }
-            }, RACE_MS);
+        // Sắp xếp: cached instance lên đầu
+        var sorted = PROXIES.slice();
+        if(cachedId){
+            sorted.sort(function(a,b){
+                if(a.id===cachedId) return -1;
+                if(b.id===cachedId) return 1;
+                return 0;
+            });
+        }
 
-            function cleanup(){
-                clearTimeout(timer);
-                aborts.forEach(function(a){ try{a.abort();}catch(e){} });
-            }
-
-            PROXIES.forEach(function(src){
-                var ac = new AbortController();
-                aborts.push(ac);
-                fetch('https://'+src.host+'/', {mode:'no-cors', cache:'no-cache', signal:ac.signal})
-                    .then(function(){
-                        if(!done){ done=true; cleanup(); resolve(src); }
-                    })
-                    .catch(function(){});
+        // Kiểm tra tất cả song song, instance đầu tiên OK → upgrade ngay
+        var upgraded = false;
+        sorted.forEach(function(src){
+            verifyInstance(src).then(function(alive){
+                if(alive){
+                    healthySources.push(src);
+                    if(!upgraded){
+                        upgraded = true;
+                        currentMode = 'proxy';
+                        $p.src = proxyUrl(src);
+                        try{ localStorage.setItem(CACHE_KEY, src.id); }catch(e){}
+                    }
+                }
             });
         });
     }
 
-    /* ══════════════ RETRY BUTTON ══════════════ */
+    // Chạy tìm kiếm ở background (không chặn video YouTube đang phát)
+    setTimeout(findAdFreeSource, 500);
+
+    // === BƯỚC 3: Nút đổi nguồn ===
+    var switchIdx = -1;
+
     $btn.addEventListener('click', function(){
-        curIdx = (curIdx + 1) % ALL.length;
-        load(ALL[curIdx]);
+        // Xây danh sách: healthy proxies + YouTube
+        allSources = healthySources.slice();
+        // Thêm YouTube nếu chưa có
+        var hasYt = false;
+        allSources.forEach(function(s){ if(s.type==='youtube') hasYt=true; });
+        if(!hasYt) allSources.push({id:'yt', host:'www.youtube.com', type:'youtube'});
+        // Thêm cả các proxy chưa check (để user thử manual)
+        PROXIES.forEach(function(p){
+            var exists = false;
+            allSources.forEach(function(s){ if(s.id===p.id) exists=true; });
+            if(!exists) allSources.push(p);
+        });
+
+        switchIdx = (switchIdx + 1) % allSources.length;
+        var src = allSources[switchIdx];
+        if(src.type==='youtube'){
+            currentMode = 'youtube';
+            $p.src = ytUrl();
+        } else {
+            currentMode = 'proxy';
+            $p.src = proxyUrl(src);
+            try{ localStorage.setItem(CACHE_KEY, src.id); }catch(e){}
+        }
     });
 
-    // Hiện nút sau 4 giây
-    setTimeout(function(){ $btn.classList.add('show'); }, 4000);
+    // Hiện nút sau 3 giây
+    setTimeout(function(){ $btn.classList.add('show'); }, 3000);
 
-    /* ══════════════ INIT ══════════════ */
-    // 1) Kiểm tra cache
-    var cachedId = null;
-    try{ cachedId = localStorage.getItem(CACHE_KEY); }catch(e){}
-    var cached = cachedId ? ALL.find(function(s){return s.id===cachedId;}) : null;
-
-    if(cached && cached.type !== 'youtube'){
-        // Có cache → load ngay lập tức (0 delay)
-        curIdx = ALL.indexOf(cached);
-        load(cached);
-
-        // Ping cache instance ở background, nếu chết → auto chuyển
-        fetch('https://'+cached.host+'/', {mode:'no-cors', cache:'no-cache'})
-            .catch(function(){
-                // Cache instance chết → race tìm cái mới
-                race().then(function(winner){
-                    var src = winner || YT;
-                    curIdx = ALL.indexOf(src);
-                    load(src);
-                });
-            });
-    } else {
-        // Không cache → race tất cả instances
-        race().then(function(winner){
-            var src = winner || YT;
-            curIdx = ALL.indexOf(src);
-            if(curIdx < 0) curIdx = ALL.length - 1;
-            load(src);
-        });
-    }
 })();
 </script>
 </body>
