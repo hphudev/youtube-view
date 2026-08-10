@@ -3,17 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>YouTube Ad-Free Player</title>
+    <title>YouTube Ultra Ad-Free Player</title>
     
     <style id="youis-adblock">
-        /* Tầng 1: CSS Blocker - Ẩn hoàn toàn tất cả container quảng cáo & overlays */
+        /* Cốc Cốc / Brave Style CSS - Triệt hạ toàn bộ Quảng cáo & Overlays */
         .ytp-ad-text-overlay, .ytp-ad-overlay-container, .ytp-ad-preview-container,
         .ytp-ad-skip-button-container, .ytp-ad-player-overlay, .ytp-ad-progress,
         .ytp-ad-image-overlay, .ytp-ad-overlay-slot, .ytp-ad-visit-advertiser-button,
         .ytp-ad-feedback-dialog, .ytp-ad-persistent-progress-bar-container,
         .video-ads, .ytp-suggestion-set, .ytp-endscreen-previous, .ytp-endscreen-content,
         .ytp-ce-element, .ytp-cards-teaser, .annotation, .iv-drawer, .ytp-ad-module,
-        .ytp-ad-overlay-image, .ad-showing, .ad-container, #player-ads {
+        .ytp-ad-overlay-image, .ad-showing, .ad-container, #player-ads,
+        ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-display-ad-renderer {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
@@ -62,7 +63,7 @@
     </style>
 
     <script>
-        // Tầng 2: Payload Filter - Bắt & bóc tách JSON quảng cáo từ YouTube InnerTube API
+        // Cơ chế Cốc Cốc / Brave Tầng 1: Lọc dữ liệu API /youtubei/v1/player ngầm
         (function() {
             'use strict';
             const originalFetch = window.fetch;
@@ -129,7 +130,6 @@
     </div>
 
     <script>
-        // Trích xuất Video ID chuẩn từ mọi định dạng link YouTube (như dự án movie)
         function extractVideoId(url) {
             if (!url) return null;
             const str = url.trim();
@@ -145,7 +145,6 @@
         if (!videoId) {
             document.getElementById('error-box').classList.add('show');
         } else {
-            // Nạp YouTube IFrame API chuẩn theo cấu hình từ dự án movie
             var tag = document.createElement('script');
             tag.src = "https://www.youtube.com/iframe_api";
             var firstScriptTag = document.getElementsByTagName('script')[0];
@@ -175,18 +174,32 @@
             }
         }
 
-        // Tầng 3: Dynamic Ad Sweeper & Speed Skipper - Tua 0.01s qua video quảng cáo & tự động bấm "Skip Ad"
-        setInterval(function() {
+        // Cơ chế Cốc Cốc / Brave Tầng 2: 16x Fast-Forward Ad Speed & Auto-Skip (Tua sạch quảng cáo trong 0.01 giây)
+        function handleAdFastForward() {
             try {
                 const video = document.querySelector('video');
-                const adShowing = document.querySelector('.ad-showing, .ytp-ad-module');
-                if (adShowing && video && !isNaN(video.duration)) {
-                    video.currentTime = video.duration;
+                const adShowing = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay, .ytp-ad-module');
+                
+                if (adShowing || (video && video.src && video.src.includes('googlevideo.com/videoplayback') && document.querySelector('.ytp-ad-text'))) {
+                    if (video) {
+                        video.muted = true;
+                        video.playbackRate = 16.0; // Tăng tốc độ phát quảng cáo 16 lần
+                        if (!isNaN(video.duration) && isFinite(video.duration) && video.duration > 0) {
+                            video.currentTime = video.duration - 0.1; // Nhảy thẳng tới 99.9% giây cuối
+                        }
+                    }
+
+                    // Tự động bấm nút Bỏ qua quảng cáo
+                    const skipBtns = document.querySelectorAll(
+                        '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot, ' +
+                        '.ytm-ad-skip-button, button[class*="skip-button"]'
+                    );
+                    skipBtns.forEach(function(btn) {
+                        try { btn.click(); } catch(e) {}
+                    });
                 }
 
-                const skipBtns = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot');
-                skipBtns.forEach(function(btn) { btn.click(); });
-
+                // Dọn dẹp DOM quảng cáo
                 const ads = document.querySelectorAll(
                     '.ytp-ad-text-overlay, .ytp-ad-overlay-container, .ytp-ad-preview-container, ' +
                     '.ytp-ad-skip-button-container, .ytp-ad-player-overlay, .ytp-ad-progress, ' +
@@ -194,7 +207,16 @@
                 );
                 ads.forEach(function(el) { el.remove(); });
             } catch(e) {}
-        }, 300);
+        }
+
+        // Chạy kiểm tra mỗi 100ms
+        setInterval(handleAdFastForward, 100);
+
+        // Đón bắt MutationObserver tức thì khi DOM thay đổi
+        try {
+            const observer = new MutationObserver(handleAdFastForward);
+            observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+        } catch(e) {}
     </script>
 </body>
 </html>
